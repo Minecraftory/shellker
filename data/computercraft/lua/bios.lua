@@ -1,6 +1,6 @@
 -- SPDX-FileCopyrightText: 2024 MrOlegTitovDev
 --
--- SPDX-License-Identifier: LicenseRef-CCPL
+-- SPDX-License-Identifier: CC-BY-NC-SA-4.0
 
 -- Events
 
@@ -13,63 +13,64 @@ local function sleep(duration, interruptable)
     repeat
         local event, timer = pullEvent(not interruptable and "timer" or nil)
     until timer == started_timer or (event == "terminate" and interruptable)
+    os.cancelTimer(started_timer)
 end
 
 -- IO
 
-function write(text, width)  -- TODO: Rewrite using gmatch, support for start x and width, add safe scroll
+function write(text, width)
     local w,h = term.getSize()
     local x,y = term.getCursorPos()
 
     local start_x = x
-
-    if width == nil then
-        width = math.max(w-x, 1)
-    else
-        width = math.min(width, w-x)
+    if width ~= nil then
+        w = math.min(width+start_x,w)
     end
 
-    local function scroll()
+    local function newLine()
         _, y = term.getCursorPos()
         if y == h then
             term.scroll(1)
         end
         y = math.min(y+1, h)
-        term.setCursorPos(1, y)
+        term.setCursorPos(start_x, y)
     end
 
+    local function writeWrapped(data)
+        x,y = term.getCursorPos()
+        data = tostring(data)
+        while #data > 0 do
+            local remaning_space = math.max(w-x, 0)
+            term.write(data:sub(1,remaning_space))
+            data = data:sub(remaning_space+1)
+            if remaning_space == 0 then
+                newLine()
+            end
+            x,y = term.getCursorPos()
+        end
+    end
 
     text = tostring(text)
-    while #text > 0 do
-        local space = text:match("^[ \t]")
-        if space then
-            term.write(space)
-            text = text:sub(#space+1)
+    for line in text:gmatch("[^\n\r]*") do
+        if #line == 0 then
+            newLine()
         end
-
-        local newline = text:match("^\n")
-        if newline then
-            scroll()
-            text = text:sub(2)
-        end
-
-        local part = text:match("^[^ \t\n]+")
-        if part then
-            text = text:sub(#part + 1)
-            if #part > w then
-                if x > w then
-                    scroll()
+        while #line > 0 do
+            local spaces = line:match("^[ \t]+")
+            if spaces ~= nil then
+                writeWrapped(spaces)
+                line = line:sub(#spaces+1)
+            end
+            local word = line:match("[^ \t]+")
+            if word ~= nil then
+                x, _ = term.getCursorPos()
+                if #word > math.max(w-x, 0) then
+                    newLine()
                 end
-                term.write(part)
-                part = part:sub(w - x + 2)
-                x, y = term.getCursorPos()
+                writeWrapped(word)
+                line = line:sub(#word+1)
             else
-                -- Print a word normally
-                if x + #part - 1 > w then
-                    scroll()
-                end
-                term.write(part)
-                x, y = term.getCursorPos()
+                break
             end
         end
     end
