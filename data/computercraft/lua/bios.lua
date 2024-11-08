@@ -2,12 +2,20 @@
 --
 -- SPDX-License-Identifier: CC-BY-NC-SA-4.0
 
+-- TODO: Add documentation
+
 -- Events
 
+---Waits for event.
+---@param filter string | nil Event type filter
+---@return table<number,any>
 local function pullEvent(filter)
     return coroutine.yield(filter)
 end
 
+---Waits for the specified time. If interruptable is set to true, allows to exit when terminated.
+---@param duration number Number of seconds to wait
+---@param interruptable boolean | nil Can be interrupted by terminate event
 local function sleep(duration, interruptable)
     local started_timer = os.startTimer(duration)
     repeat
@@ -18,7 +26,12 @@ end
 
 -- IO
 
-function write(text, width)
+---Outputs the specified text to the screen. If necessary, transposes words, taking into account the initial x position of the cursor and the specified width. 
+---If safeScroll is true, it scrolls the screen only after confirmation from the user, and also allows you to interrupt output by pressing 'q'.
+---@param text string Output text
+---@param width number | nil Output width
+---@param safeScroll boolean | nil Line change only after confirmation
+function write(text, width, safeScroll)
     local w,h = term.getSize()
     local x,y = term.getCursorPos()
 
@@ -26,14 +39,33 @@ function write(text, width)
     if width ~= nil then
         w = math.min(width+start_x,w)
     end
+    local newlineCount = 0
+    local function newLine(safe)
+        newlineCount = newlineCount + 1
 
-    local function newLine()
         _, y = term.getCursorPos()
         if y == h then
             term.scroll(1)
+            if safe then
+                term.setCursorPos(start_x,h)
+                term.write((" "):rep(w-1))
+                term.setCursorPos(start_x,h)
+                term.write(": ")
+                local event = {}
+                repeat
+                    event = {pullEvent()}
+                until event[1] == "key" or event[1] == "terminate"
+                term.setCursorPos(start_x,h)
+                term.write((" "):rep(w-1))
+                term.setCursorPos(start_x,h)
+                if event[1] == "terminate" or event[2] == 81 then  -- If user pressed `q' or CTRL+T then we stop writing text.
+                    return false
+                end
+            end
         end
         y = math.min(y+1, h)
         term.setCursorPos(start_x, y)
+        return true
     end
 
     local function writeWrapped(data)
@@ -44,7 +76,9 @@ function write(text, width)
             term.write(data:sub(1,remaning_space))
             data = data:sub(remaning_space+1)
             if remaning_space == 0 then
-                newLine()
+                if not newLine(safeScroll) then
+                    return
+                end
             end
             x,y = term.getCursorPos()
         end
@@ -53,7 +87,9 @@ function write(text, width)
     text = tostring(text)
     for line in text:gmatch("[^\n\r]*") do
         if #line == 0 then
-            newLine()
+            if not newLine(safeScroll) then
+                return
+            end
         end
         while #line > 0 do
             local spaces = line:match("^[ \t]+")
@@ -65,7 +101,9 @@ function write(text, width)
             if word ~= nil then
                 x, _ = term.getCursorPos()
                 if #word > math.max(w-x, 0) then
-                    newLine()
+                    if not newLine(safeScroll) then
+                        return
+                    end
                 end
                 writeWrapped(word)
                 line = line:sub(#word+1)
@@ -74,9 +112,31 @@ function write(text, width)
             end
         end
     end
+    _, y = term.getCursorPos()
+    if safeScroll and y == h and newlineCount > 1 then
+        newLine(false)
+        term.setCursorPos(start_x,h)
+        term.write((" "):rep(w-1))
+        term.setCursorPos(start_x,h)
+        term.write("END")
+        local event
+        repeat
+            event = {pullEvent()}
+        until event[1] == "key" or event[1] == "terminate"
+        term.setCursorPos(start_x,h)
+        term.write((" "):rep(w-1))
+        term.setCursorPos(start_x,h)
+    end
 end
 
-function read(text, width, history)  -- TODO: Add completions
+---Requests input from the user, given the initial x coordinate of the cursor and the specified width. 
+---It is possible to specify the initial text, input history and completion function (must accept the current word and return a table).
+---@param text string | nil Initial text
+---@param width number | nil Input field width
+---@param history table<integer,string> | nil Input history
+---@param compeltions_func function | nil Completion function
+---@return string
+function read(text, width, history, compeltions_func)
     local w, h = term.getSize()
     local x, y = term.getCursorPos()
 
@@ -95,6 +155,8 @@ function read(text, width, history)  -- TODO: Add completions
     end
     history[#history+1] = text
     local history_pos = #history
+    local completions_pos = 1
+    local last_completions
     local pos = math.max(#text+1, 1)
 
     local function clearLine()
@@ -145,6 +207,32 @@ function read(text, width, history)  -- TODO: Add completions
                 history_pos = math.min(history_pos+1, #history)
                 text = history[history_pos]
                 pos = #text+1
+            elseif event_data[2] == 258 and type(compeltions_func) == "function" then  -- Tab
+                local cur_part = text:sub(1,pos-1):match("[^%s]+$")
+                if cur_part ~= nil then
+                    local before_space = pos-1-#cur_part
+                    local after_space = text:sub(before_space+1):find("[%s]")
+                    if after_space == nil then
+                        after_space = #text+1
+                    else
+                        after_space = after_space+before_space
+                    end
+                    local cur_word = text:sub(before_space+1,after_space-1)
+                    local completions = last_completions ~= nil and last_completions or compeltions_func(cur_word)
+                    if last_completions ~= nil and cur_word ~= last_completions[math.max(completions_pos-1, 1)] then
+                        completions_pos = 1
+                        completions = compeltions_func(cur_word)
+                    end
+                    if #completions > 0 then
+                        if completions_pos > #completions then
+                            completions_pos = 1
+                        end
+                        last_completions = completions
+                        text = text:sub(1, before_space).. completions[completions_pos].. text:sub(after_space)
+                        pos = math.min(pos+#completions[completions_pos]-#cur_part, #text+1)
+                        completions_pos = math.min(completions_pos+1, #completions+1)
+                    end
+                end
             elseif event_data[2] == 257 or event_data[2] == 335 then -- Enter
                 break
             end
@@ -177,9 +265,14 @@ end
 LOADER_VERSION = "Shellker version 1.0"
 LOADER_CONFIG_DIR = "/etc/default/"
 local loader_config = {}
+local available_commands = {}
 
 --  Configuration
 
+---Defines new config parameter.
+---@param name string Parameter name
+---@param default_val string | number Initial value of the parameter
+---@param description string | nil Parameter description
 local function defineConfigParam(name, default_val, description)
     if loader_config[name] then
         return
@@ -187,6 +280,7 @@ local function defineConfigParam(name, default_val, description)
     loader_config[name] = {default_val, default_val, description}
 end
 
+---Defines all standard config parameters.
 local function defineConfig()
     -- Genral
     defineConfigParam("DEFAULT", 1, "Sets the default menu entry. Must be numeric.")
@@ -202,6 +296,7 @@ local function defineConfig()
     defineConfigParam("#Default Boot Args", "Ex: /rom/loader.lua=test arg;123", "List of default boot args that will be passed to loader when booting OS. Name should be path to loader. Args must be separated with `;'")
 end
 
+---Saves the config to a file.
 local function saveConfig()
     local config_data = {}
     for key, data in pairs(loader_config) do
@@ -215,6 +310,7 @@ local function saveConfig()
     file.close()
 end
 
+---Loads the config from a file.
 local function loadConfig()
     if not fs.exists(fs.combine(LOADER_CONFIG_DIR, "shellker")) then
         return saveConfig()
@@ -241,6 +337,10 @@ local function loadConfig()
     end
 end
 
+---Returns the value of the specified parameter from the configuration. If the value is nil, the default value is returned.
+---@param name string Parameter name
+---@param default string | number | nil Default value
+---@return string | number | nil
 local function getConfigParam(name, default)
     local param = loader_config[name]
     if param == nil then
@@ -249,9 +349,12 @@ local function getConfigParam(name, default)
     return param[1] ~= nil and param[1] or default
 end
 
+---Changes the value of the specified config parameter.
+---@param name string Parameter name
+---@param new_val string | number | nil New value of the parameter
 local function setConfigParam(name, new_val)
     if loader_config[name] == nil then
-        return
+        loader_config[name] = {}
     end
     loader_config[name][1] = new_val
     saveConfig()
@@ -259,11 +362,13 @@ end
 
 defineConfig()  -- Define config params with default values
 loadConfig()  -- Load config from file and change params values if it exists or create file and write default definitions
---  loaders
 
--- Searches for files that have "loader" in the name.
+--  Loaders
+
+---Searches for files that have "loader.lua" in the name.
+---@return table<integer,string>
 local function findLoaders()
-    local directories = {"/boot/", "/rom"}
+    local directories = {"/boot/", "/rom/"}
     for path in tostring(getConfigParam("LOADERS_DIRECTORIES", "")):gmatch("[%a%d._-%s]+") do
         if #path > 0 then
             directories[#directories+1] = path
@@ -281,8 +386,73 @@ local function findLoaders()
     return boot_loaders
 end
 
+--  Completion Functions
+
+---Returns a list of possible file and directory completions based on the specified path.
+---@param path string
+---@return table<integer,string>
+local function fsCompletion(path)
+    local completions = {}
+    if path == nil then
+        return completions
+    end
+    path = tostring(path)
+    if not path:match("^/") then
+        path = "/".. path
+    end
+    local path_end
+    if not fs.exists(path) or not fs.isDir(path) then
+        path_end = path:match("[^/]+$")
+        path = path:match("^(.*/)([^/]*)$")
+        if path == nil or not fs.exists(path) then
+            return completions
+        end
+    end
+    local files = fs.list(path)
+    for i=1,#files do
+        if path_end == nil or (path_end ~= nil and files[i]:match("^".. path_end)) then
+            local file_path = fs.combine(path, files[i])
+            completions[#completions+1] = file_path
+        end
+    end
+    return completions
+end
+
+---Returns a list of command completions based on the specified text.
+---@param command string
+---@return table<integer,string>
+local function commandCompletion(command)
+    local completions = {}
+    for cmd, _ in pairs(available_commands) do
+        if cmd:match("^".. command) then
+            completions[#completions+1] = cmd
+        end
+    end
+    return completions
+end
+
+---Returns a list of all possible completions based on the entered word.
+---@param word string
+---@return table<integer,string>
+local function commandLineCompletion(word)
+    local completions = {}
+    for _, completion in pairs(commandCompletion(word)) do
+        completions[#completions+1] = completion
+    end
+    for _, completion in pairs(fsCompletion(word)) do
+        completions[#completions+1] = completion
+    end
+    return completions
+end
+
 --  UI
 
+---Displays the specified reference lines on the screen, taking into account the initial x, y coordinates and the specified width.
+---@param x number
+---@param start_y number
+---@param w number
+---@param manual table<integer,string>
+---@return number
 local function drawManual(x, start_y, w, manual)
     local _, h = term.getSize()
     local _, y = term.getCursorPos()
@@ -305,6 +475,11 @@ local function drawManual(x, start_y, w, manual)
     return y
 end
 
+---Draws on the screen the main elements of the loader interface (title, list borders). Returns initial coordinates of the list, its width and height.
+---@return integer
+---@return integer
+---@return integer
+---@return integer
 local function drawInterface()
     term.clear()
 
@@ -320,7 +495,7 @@ local function drawInterface()
     -- Drawing borders
 
     term.setCursorPos(math.ceil(w*list_paddings/100), y+math.ceil(h*list_paddings/100))
-    
+
     local list_start_x, list_start_y = term.getCursorPos()
     list_height = math.max(math.ceil(h*list_height/100)-1, 1)
     local list_width = (w-math.ceil(w*list_paddings/100))-(math.ceil(w*list_paddings/100)+1)+1
@@ -338,10 +513,17 @@ local function drawInterface()
     term.setCursorPos(list_start_x,y+1)
     term.write(string.char(141).. string.char(140):rep((w-math.ceil(w*list_paddings/100))-(math.ceil(w*list_paddings/100)+1)).. string.char(133))
 
-    -- Returning list dimensions
+    -- Returning borders dimensions
     return list_start_x, list_start_y, list_width, list_height
 end
 
+---Draws a list of items based on the specified coordinates and dimensions and highlights the selected entry.
+---@param start_x integer Initial x-coordinate
+---@param start_y integer Initial y-coordinate
+---@param width integer List width
+---@param height integer List height
+---@param position integer Selected position
+---@param entries table<integer,string> List of entries
 local function drawList(start_x, start_y, width, height, position, entries)
     for i=1,height do
         term.setCursorPos(start_x+1, start_y+i)
@@ -387,6 +569,8 @@ local function drawList(start_x, start_y, width, height, position, entries)
     end
 end
 
+---Clears the screen and draws the main elements of the command line (title, manual texts). 
+---@return integer
 local function drawCommandLine()
     term.clear()
     local w,h = term.getSize()
@@ -398,20 +582,23 @@ local function drawCommandLine()
     local x, y = term.getCursorPos()
 
     drawManual(1, y-1, w, man_texts)
+    local x, y = term.getCursorPos()
+
+    term.setCursorPos(1, y-1+math.ceil(h*top_padding/100))
 
     _, y = term.getCursorPos()
-    
+
     return y
 end
 
 --  Command-line commands
 
-local function commandHelp(commands, pattern)  -- TODO: write text with safe scroll
+local function commandHelp(pattern)
     if pattern == nil then
         pattern = ".*"
     end
     local man = {}
-    for cmd, cmd_data in pairs(commands) do
+    for cmd, cmd_data in pairs(available_commands) do
         if tostring(cmd):match(pattern) then
             man[#man+1] = tostring(cmd).. (#cmd_data >= 2 and " - ".. tostring(cmd_data[2]) or "")
         end
@@ -464,7 +651,6 @@ local function commandLs(path)
     if path == nil then
         path = "/"
     end
-    local text = ""
     if not fs.exists(path) then
         return "Specified path does not exists."
     end
@@ -572,6 +758,24 @@ local function commandExit()
     return nil, "list"
 end
 
+available_commands = {
+    ["boot"]={commandBoot, "Boot the OS which has been selected."},
+    ["cat"]={commandCat, "Display the contents of the specified file."},
+    ["clear"]={commandClear, "Clear the screen."},
+    ["config"]={commandConfig, "Display values of the config or the specified key. Changes value if a new value is specified."},
+    ["date"]={commandDate, "Print the current date and time."},
+    ["echo"]={commandEcho, "Display the requested text."},
+    ["halt"]={commandHalt, "The command halts the computer."},
+    ["help"]={commandHelp, "Display helpful information about builtin commands."},
+    ["hexdump"]={commandHexDump, "Show raw contents of a specified file."},
+    ["ls"]={commandLs, "List the contents of specified directory."},
+    ["reboot"]={commandReboot, "Reboot the computer."},
+    ["regexp"]={commandRegExp, "Test if regular expression matches string."},
+    ["search"]={commandSearch, "Search files and directory in specified path."},
+    ["sleep"]={commandSleep, "Sleep for specified seconds. Interrupts when pressing `CTRL+T'."},
+    ["exit"]={commandExit, "Return to loader menu."}
+}
+
 --   Handlers
 
 local function handleList(x, y, w, h, entries, start_pos, timeout_timer)
@@ -615,24 +819,6 @@ local function handleCommandLine()
     local y = drawCommandLine()
     local commands_history = {}
 
-    local available_commands = {
-        ["boot"]={commandBoot, "Boot the OS which has been selected."},
-        ["cat"]={commandCat, "Display the contents of the specified file."},
-        ["clear"]={commandClear, "Clear the screen."},
-        ["config"]={commandConfig, "Display values of the config or the specified key. Changes value if a new value is specified."},
-        ["date"]={commandDate, "Print the current date and time."},
-        ["echo"]={commandEcho, "Display the requested text."},
-        ["halt"]={commandHalt, "The command halts the computer."},
-        ["help"]={commandHelp, "Display helpful information about builtin commands."},
-        ["hexdump"]={commandHexDump, "Show raw contents of a specified file."},
-        ["ls"]={commandLs, "List the contents of specified directory."},
-        ["reboot"]={commandReboot, "Reboot the computer."},
-        ["regexp"]={commandRegExp, "Test if regular expression matches string."},
-        ["search"]={commandSearch, "Search files and directory in specified path."},
-        ["sleep"]={commandSleep, "Sleep for specified seconds. Interrupts when pressing `CTRL+T'."},
-        ["exit"]={commandExit, "Return to loader menu."}
-    }
-
     local function scroll()
         _, y = term.getCursorPos()
         if y == h then
@@ -645,7 +831,7 @@ local function handleCommandLine()
     while true do
         scroll()
         term.write("shellker>")
-        local text = read(nil, nil, commands_history)
+        local text = read(nil, nil, commands_history, commandLineCompletion)
         commands_history[#commands_history+1] = text
         text = text:gsub("^[ \t]+|[ \t]+$", "")  -- Removing start and end spaces
         local cmd_data = {}
@@ -656,16 +842,13 @@ local function handleCommandLine()
             local args = {table.unpack(cmd_data, 2)}
             local cmd = available_commands[tostring(cmd_data[1]):lower()]
             if cmd ~= nil then
-                if cmd[1] == commandHelp then
-                    table.insert(args, 1, available_commands)
-                end
                 local res, mode = cmd[1](table.unpack(args))
                 if mode ~= nil then
                     return mode
                 end
                 if res ~= nil then
                     scroll()
-                    write(res)
+                    write(res, nil, true)
                 end
             else
                 scroll()
@@ -697,11 +880,11 @@ local function handleArgs(x, y, w, h, args)
         elseif event_data[2] == 257 or event_data[2] == 335 then  -- Enter
             term.setCursorPos(x+1, math.min(y+position, y+h))
             local line = read(args[position], w-2)
-            if #line:gsub("[ \t]", "") > 0 then
-                args[position] = line
-            elseif position > 1 then
+            if #line:gsub("[ \t]", "") == 0 and ((position == 1 and #args > 1) or position > 1) then
                 table.remove(args,position)
-                position = math.max(position-1, 1)
+                position = math.max(#args,1)
+            else
+                args[position] = line
             end
         elseif event_data[2] == 290 then  -- F1
             return "list", args
@@ -755,13 +938,16 @@ local function main()
     local man_texts = {"Use the ".. string.char(30).. " and ".. string.char(31).. " keys to select entry.", "Press enter to boot the selected OS,", "`e' to edit the commands before boot", "or `c' for a command-line."}
 
     if #loaders == 0 then
-        write("No bootable media was found. Press `enter' to enter command-line.")
-        read()
+        write("No bootable media was found. Press any key to enter command-line.")
+        pullEvent()
         mode = "cmd"
     end
 
     for i=1,#loaders do  -- Try to find and load args from the config
         local args_string = getConfigParam(loaders[i])
+        if args_string == nil then
+            args_string = getConfigParam("/".. loaders[i])
+        end
         if args_string ~= nil then
             local args = {}
             for part in tostring(args_string):gmatch("[%a%d%s]+") do
@@ -799,7 +985,6 @@ local function main()
                 table.remove(man_texts, #man_texts)
                 drawManual(list_x, list_y+list_h, list_w, man_texts)
             end
-            -- pullEvent() -- TODO: Add timeout if char event is not queued
         elseif mode == "args" then
             local args = boot_args[selected_boot]
             if args == nil then
@@ -807,10 +992,13 @@ local function main()
                 boot_args[selected_boot] = args
             end
             res = {handleArgs(list_x, list_y, list_w, list_h, args)}
-            if #res > 1 then
+            if #res > 1 and #res[2] > 0 then
+                if #res[2][1]:gsub("[ \t]", "") == 0 then
+                    res[2] = {}
+                end
                 boot_args[selected_boot] = res[2]
+                setConfigParam(loaders[selected_boot], table.concat(res[2], ";"))
             end
-            -- pullEvent() -- TODO: Add timeout if char event is not queued
             drawManual(list_x, list_y+list_h, list_w, man_texts)
         elseif mode == "cmd" then
             res = {handleCommandLine()}
@@ -832,6 +1020,7 @@ local function main()
             drawManual(list_x, list_y+list_h, list_w, man_texts)
         end
         mode = #res > 0 and res[1] or "list"
+        sleep(0)
     end
     os.shutdown()
 end
