@@ -2,20 +2,18 @@
 --
 -- SPDX-License-Identifier: CC-BY-NC-SA-4.0
 
--- TODO: Add documentation
-
 -- Events
 
 ---Waits for event.
----@param filter string | nil Event type filter
----@return table<number,any>
+---@param filter string | nil Event type filter.
+---@return table<number,any> # Table with event data.
 local function pullEvent(filter)
     return coroutine.yield(filter)
 end
 
 ---Waits for the specified time. If interruptable is set to true, allows to exit when terminated.
----@param duration number Number of seconds to wait
----@param interruptable boolean | nil Can be interrupted by terminate event
+---@param duration number Number of seconds to wait.
+---@param interruptable boolean | nil Can be interrupted by terminate event.
 local function sleep(duration, interruptable)
     local started_timer = os.startTimer(duration)
     repeat
@@ -28,9 +26,9 @@ end
 
 ---Outputs the specified text to the screen. If necessary, transposes words, taking into account the initial x position of the cursor and the specified width. 
 ---If safeScroll is true, it scrolls the screen only after confirmation from the user, and also allows you to interrupt output by pressing 'q'.
----@param text string Output text
----@param width number | nil Output width
----@param safeScroll boolean | nil Line change only after confirmation
+---@param text string Output text.
+---@param width number | nil Output width.
+---@param safeScroll boolean | nil Line change only after confirmation.
 function write(text, width, safeScroll)
     local w,h = term.getSize()
     local x,y = term.getCursorPos()
@@ -131,11 +129,11 @@ end
 
 ---Requests input from the user, given the initial x coordinate of the cursor and the specified width. 
 ---It is possible to specify the initial text, input history and completion function (must accept the current word and return a table).
----@param text string | nil Initial text
----@param width number | nil Input field width
----@param history table<integer,string> | nil Input history
----@param compeltions_func function | nil Completion function
----@return string
+---@param text string | nil Initial text.
+---@param width number | nil Input field width.
+---@param history table<integer,string> | nil Input history.
+---@param compeltions_func function | nil Completion function.
+---@return string # Entered text.
 function read(text, width, history, compeltions_func)
     local w, h = term.getSize()
     local x, y = term.getCursorPos()
@@ -246,6 +244,10 @@ function read(text, width, history, compeltions_func)
     return text
 end
 
+---Returns a list of files and folders found by the specified regex pattern at the specified path.
+---@param path any Path to search.
+---@param patt any Regex pattern for search.
+---@return table # Table with found files and directories.
 local function fsFind(path, patt)
     if not fs.exists(path) then
         return {}
@@ -270,9 +272,9 @@ local available_commands = {}
 --  Configuration
 
 ---Defines new config parameter.
----@param name string Parameter name
----@param default_val string | number Initial value of the parameter
----@param description string | nil Parameter description
+---@param name string Parameter name.
+---@param default_val string | number Initial value of the parameter.
+---@param description string | nil Parameter description.
 local function defineConfigParam(name, default_val, description)
     if loader_config[name] then
         return
@@ -338,9 +340,9 @@ local function loadConfig()
 end
 
 ---Returns the value of the specified parameter from the configuration. If the value is nil, the default value is returned.
----@param name string Parameter name
----@param default string | number | nil Default value
----@return string | number | nil
+---@param name string Parameter name.
+---@param default string | number | nil Default value.
+---@return string | number | nil # Value of specified parameter.
 local function getConfigParam(name, default)
     local param = loader_config[name]
     if param == nil then
@@ -350,8 +352,8 @@ local function getConfigParam(name, default)
 end
 
 ---Changes the value of the specified config parameter.
----@param name string Parameter name
----@param new_val string | number | nil New value of the parameter
+---@param name string Parameter name.
+---@param new_val string | number | nil New value of the parameter.
 local function setConfigParam(name, new_val)
     if loader_config[name] == nil then
         loader_config[name] = {}
@@ -366,7 +368,7 @@ loadConfig()  -- Load config from file and change params values if it exists or 
 --  Loaders
 
 ---Searches for files that have "loader.lua" in the name.
----@return table<integer,string>
+---@return table<integer,string> # Table with found loaders.
 local function findLoaders()
     local directories = {"/boot/", "/rom/"}
     for path in tostring(getConfigParam("LOADERS_DIRECTORIES", "")):gmatch("[%a%d._-%s]+") do
@@ -389,8 +391,8 @@ end
 --  Completion Functions
 
 ---Returns a list of possible file and directory completions based on the specified path.
----@param path string
----@return table<integer,string>
+---@param path string Path to find suitable completions.
+---@return table<integer,string> # Table with possible completions for specified path.
 local function fsCompletion(path)
     local completions = {}
     if path == nil then
@@ -419,8 +421,8 @@ local function fsCompletion(path)
 end
 
 ---Returns a list of command completions based on the specified text.
----@param command string
----@return table<integer,string>
+---@param command string Command to search for suitable completions.
+---@return table<integer,string> # Table with possible completions for specified command.
 local function commandCompletion(command)
     local completions = {}
     for cmd, _ in pairs(available_commands) do
@@ -432,8 +434,8 @@ local function commandCompletion(command)
 end
 
 ---Returns a list of all possible completions based on the entered word.
----@param word string
----@return table<integer,string>
+---@param word string Word to search for situable completions.
+---@return table<integer,string> # Table with possible completions for specified word.
 local function commandLineCompletion(word)
     local completions = {}
     for _, completion in pairs(commandCompletion(word)) do
@@ -448,11 +450,11 @@ end
 --  UI
 
 ---Displays the specified reference lines on the screen, taking into account the initial x, y coordinates and the specified width.
----@param x number
----@param start_y number
----@param w number
----@param manual table<integer,string>
----@return number
+---@param x number Initial x-coordinate.
+---@param start_y number Initial y-coordinate.
+---@param w number Text area width.
+---@param manual table<integer,string> List of manual texts.
+---@return number # Y-coordinate.
 local function drawManual(x, start_y, w, manual)
     local _, h = term.getSize()
     local _, y = term.getCursorPos()
@@ -476,10 +478,10 @@ local function drawManual(x, start_y, w, manual)
 end
 
 ---Draws on the screen the main elements of the loader interface (title, list borders). Returns initial coordinates of the list, its width and height.
----@return integer
----@return integer
----@return integer
----@return integer
+---@return integer # Initial x-coordinate.
+---@return integer # Initial y-coordinate.
+---@return integer # List width.
+---@return integer # List height.
 local function drawInterface()
     term.clear()
 
@@ -518,12 +520,12 @@ local function drawInterface()
 end
 
 ---Draws a list of items based on the specified coordinates and dimensions and highlights the selected entry.
----@param start_x integer Initial x-coordinate
----@param start_y integer Initial y-coordinate
----@param width integer List width
----@param height integer List height
----@param position integer Selected position
----@param entries table<integer,string> List of entries
+---@param start_x integer Initial x-coordinate.
+---@param start_y integer Initial y-coordinate.
+---@param width integer List width.
+---@param height integer List height.
+---@param position integer Selected position.
+---@param entries table<integer,string> List of entries.
 local function drawList(start_x, start_y, width, height, position, entries)
     for i=1,height do
         term.setCursorPos(start_x+1, start_y+i)
@@ -569,8 +571,8 @@ local function drawList(start_x, start_y, width, height, position, entries)
     end
 end
 
----Clears the screen and draws the main elements of the command line (title, manual texts). 
----@return integer
+---Clears the screen and draws the main elements of the command line (title, manual texts). Returns the initial y for commands input
+---@return integer # Y-coordinate.
 local function drawCommandLine()
     term.clear()
     local w,h = term.getSize()
@@ -593,6 +595,9 @@ end
 
 --  Command-line commands
 
+---Returns a list of available commands and their descriptions. If pattern is specified, filters the list by it.
+---@param pattern string Regex pattern for list filtering.
+---@return string # Filtered list of available commands.
 local function commandHelp(pattern)
     if pattern == nil then
         pattern = ".*"
@@ -606,6 +611,10 @@ local function commandHelp(pattern)
     return " ".. table.concat(man, "\n ")
 end
 
+---Returns the current bootloader configuration or the value of the specified key. Changes the value of the key if a new value is specified.
+---@param key string Configuration key.
+---@param new_val string|number New value.
+---@return string # Config keys and values.
 local function commandConfig(key, new_val)
     if key == nil then
         local config_data = {}
@@ -627,26 +636,39 @@ local function commandConfig(key, new_val)
     return tostring(key).. " was set to `".. tostring(new_val).. "'."
 end
 
+---Returns information about entering boot mode.
+---@return nil
+---@return string # Mode to be switched to.
 local function commandBoot()
     return nil, "boot"
 end
 
+---Clears the screen and draws the command-line menu.
 local function commandClear()
     drawCommandLine()
 end
 
+---Returns the current date and time in UTC time zone in the format YEAR-MONTH-DAY HOUR:MINUTE:SECOND WEEKDAY 24-hour.
+---@return string|osdate # Formatted current date and time in UTC time zone.
 local function commandDate()
-    return os.date("!%Y-%m-%dT%TZ")
+    return os.date("!%Y-%m-%d %H:%M:%S %A")
 end
 
+--- Returns space-separated arguments.
+--- @param ... unknown Arguments to print.
+--- @return string # Space-separated arguments.
 local function commandEcho(...)
     return table.concat({...}, " ")
 end
 
+---Shutting down the computer.
 local function commandHalt()
     os.shutdown()
 end
 
+---Returns a list of files and directories at the specified path. If no path is specified outputs the list from the root path.
+---@param path string|nil Path to get a list of files and directories.
+---@return string # List of files and directories at the specified path.
 local function commandLs(path)
     if path == nil then
         path = "/"
@@ -666,6 +688,9 @@ local function commandLs(path)
     return table.concat(files, " ")
 end
 
+---Returns the contents of the file at the specified path.
+---@param path string File path.
+---@return string # Contents of the specified file.
 local function commandCat(path)
     if path == nil then
         return "Specify the path to the file."
@@ -682,6 +707,11 @@ local function commandCat(path)
     return text
 end
 
+---Returns the raw contents of the file at the specified path. Offsets the starting byte when offset is specified, and limits the number when length is specified.
+---@param path string File path.
+---@param offset integer|nil Byte offset.
+---@param length integer|nil Number of bytes.
+---@return string # Raw contents of the specified file.
 local function commandHexDump(path, offset, length)
     if path == nil then
         return "Specify the path to the file."
@@ -707,6 +737,10 @@ local function commandHexDump(path, offset, length)
     return table.concat(bytes, " ")
 end
 
+---Checks if the specified string matches the specified regex pattern.
+---@param pattern any Regex pattern.
+---@param string any String to check.
+---@return string # Result of the match check.
 local function commandRegExp(pattern, string)
     if pattern == nil then
         return "Specify the regular expression."
@@ -718,12 +752,16 @@ local function commandRegExp(pattern, string)
     end
 end
 
-local function commandSearch(path, pattern)
-    if path == nil then
-        return "Specify the path to the files to search."
-    end
+---Returns a list of files and folders found by the specified regex pattern at the specified path. If no path is specified searches the root path.
+---@param pattern string Regex pattern for search.
+---@param path string|nil Path to search.
+---@return string # List of found files and folders.
+local function commandSearch(pattern, path)
     if pattern == nil then
         return "Specify a pattern for the search."
+    end
+    if path == nil then
+        path = "/"
     end
     if not fs.exists(path) then
         return "Specified path does not exists."
@@ -740,6 +778,9 @@ local function commandSearch(path, pattern)
     return table.concat(files, " ")
 end
 
+---Waits for the specified number of seconds. Can be interrupted by calling the 'terminate' event.
+---@param delay number Waiting time in seconds.
+---@return string|nil # Error.
 local function commandSleep(delay)
     if delay == nil then
         return "Specfiy the delay to wait for."
@@ -750,10 +791,14 @@ local function commandSleep(delay)
     sleep(delay, true)
 end
 
+---Reboots the computer.
 local function commandReboot()
     os.reboot()
 end
 
+---Returns information about entering list mode.
+---@return nil
+---@return string # Mode to be switched to.
 local function commandExit()
     return nil, "list"
 end
@@ -778,6 +823,16 @@ available_commands = {
 
 --   Handlers
 
+---Controls the state of the list. Returns the new mode and selected position.
+---@param x integer List x-coordinate.
+---@param y integer List y-coordinate.
+---@param w integer List width.
+---@param h integer List height.
+---@param entries table<integer,string> List of entries.
+---@param start_pos integer Selected position.
+---@param timeout_timer number|nil Timeout timer ID.
+---@return string # Mode to be switched to.
+---@return integer|nil # Selected position.
 local function handleList(x, y, w, h, entries, start_pos, timeout_timer)
     local position = 1
     if start_pos ~= nil then
@@ -814,6 +869,8 @@ local function handleList(x, y, w, h, entries, start_pos, timeout_timer)
     end
 end
 
+---Controls the state of the command-line. Returns the new mode.
+---@return string # Mode to be switched to.
 local function handleCommandLine()
     local w, h = term.getSize()
     local y = drawCommandLine()
@@ -860,6 +917,14 @@ local function handleCommandLine()
     end
 end
 
+---Controls the state of the argument editor. Returns new mode as well as the list of loader arguments.
+---@param x integer List x-coordinate.
+---@param y integer List y-coordinate.
+---@param w integer List width.
+---@param h integer List height.
+---@param args table<integer,string> List of loader args.
+---@return string # Mode to be switched to.
+---@return table<integer,string> # List of arguments to be passed to the loader.
 local function handleArgs(x, y, w, h, args)
     local position = math.max(#args, 1)
     local man_texts = {"Use the ".. string.char(30).. " and ".. string.char(31).. " keys to select line.", "Press enter to edit selected line,", "`x' to boot, `c' for a command-line", "or F1 to return to the loader menu."}
@@ -899,6 +964,12 @@ local function handleArgs(x, y, w, h, args)
     end
 end
 
+---Controls the boot status of the selected system. Returns error information in case of failure.
+---@param loader_path string Path to loader file.
+---@param args table<integer,string> List of args to pass to the loader.
+---@return string # Mode to be switched to.
+---@return boolean # Whether the system was successfully booted.
+---@return string # Error message.
 local function handleBoot(loader_path, args)
     term.clear()
     term.setCursorPos(1,1)
@@ -928,6 +999,7 @@ local function handleBoot(loader_path, args)
     return nil, true
 end
 
+---The main function of the loader, which controls its behavior.
 local function main()
     local loaders = findLoaders()  -- Linuxale (on /discord/@justxale)
     local boot_args = {}
